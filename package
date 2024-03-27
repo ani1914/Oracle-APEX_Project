@@ -1,0 +1,406 @@
+CREATE OR REPLACE PACKAGE FootballEvents AS
+    PROCEDURE create_new_customer (
+        p_customer_id   IN CUSTOMERS.ID%TYPE,
+        p_name          IN CUSTOMERS.NAME%TYPE,
+        p_email         IN CUSTOMERS.EMAIL%TYPE,
+        p_phone         IN CUSTOMERS.PHONE%TYPE
+    );
+
+     PROCEDURE create_new_match (
+        p_match_id   IN FOOTBALLMATCHES.MATCH_ID%TYPE,
+        p_name       IN FOOTBALLMATCHES.NAME%TYPE,
+        p_date       IN FOOTBALLMATCHES.DATE%TYPE,
+        p_stadium    IN FOOTBALLMATCHES.STADIUM%TYPE
+    );
+   
+    PROCEDURE create_new_ticket (
+        p_ticket_id           IN TICKETS.TICKET_ID%TYPE,
+        p_ticket_type         IN TICKETS.TICKET_TYPE%TYPE,
+        p_price               IN TICKETS.PRICE%TYPE,
+        p_number_tickets      IN TICKETS.NUMBER_TICKETS%TYPE
+    );
+
+    PROCEDURE purchase_ticket (
+        p_customer_id   IN CUSTOMERS.id%TYPE,
+        p_match_id      IN FOOTBALLMATCHES.MATCH_ID%TYPE,
+        p_ticket_type   IN TICKETS.TICKET_TYPE%TYPE
+    );
+
+    FUNCTION change_ticket_price (
+        p_ticket_id     IN TICKETS.TICKET_ID%TYPE,
+        p_new_price     IN TICKETS.PRICE%TYPE
+    ) RETURN BOOLEAN;
+
+    PROCEDURE find_customer_tickets (
+        p_customer_id   IN CUSTOMERS.ID%TYPE
+    );
+
+    PROCEDURE find_sales_by_period (
+        p_start_date   IN DATE,
+        p_end_date     IN DATE
+    );
+
+    PROCEDURE find_matches_with_most_tickets_sold;
+
+    PROCEDURE find_customer_with_most_tickets;
+
+    PROCEDURE transfer_ticket_owner (
+        p_sale_id           IN FOOTBALLEVENTSSALES.SALE_ID%TYPE,
+        p_old_customer_id   IN CUSTOMERS.ID%TYPE,
+        p_new_customer_id   IN CUSTOMERS.ID%TYPE
+    );
+
+END FootballEvents;
+/
+
+------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PACKAGE BODY FootballEvents AS
+    PROCEDURE create_new_customer (
+        p_customer_id   IN CUSTOMERS.ID%TYPE,
+        p_name          IN CUSTOMERS.NAME%TYPE,
+        p_email         IN CUSTOMERS.EMAIL%TYPE,
+        p_phone         IN CUSTOMERS.PHONE%TYPE
+    ) AS
+        v_customer_count NUMBER;
+    BEGIN
+       
+        SELECT COUNT(*) INTO v_customer_count FROM Customers WHERE id = p_customer_id;
+
+        IF v_customer_count = 0 THEN
+           
+            INSERT INTO Customers (id, name, email, phone)
+            VALUES (p_customer_id, p_name, p_email, p_phone);
+
+            COMMIT; 
+            DBMS_OUTPUT.PUT_LINE('New customer created successfully.');
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Customer with ID ' || p_customer_id || ' already exists.');
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK; 
+    END create_new_customer;
+
+----------------create_new_match----------------------    
+    PROCEDURE create_new_match (
+        p_match_id   IN FOOTBALLMATCHES.MATCH_ID%TYPE,
+        p_name       IN FOOTBALLMATCHES.NAME%TYPE,
+        p_date       IN FOOTBALLMATCHES.DATE%TYPE,
+        p_stadium    IN FOOTBALLMATCHES.STADIUM%TYPE
+    ) AS
+        v_match_count NUMBER;
+    BEGIN
+       
+        SELECT COUNT(*) INTO v_match_count FROM FOOTBALLMATCHES WHERE MATCH_ID = p_match_id;
+
+        IF v_match_count = 0 THEN
+           
+            INSERT INTO FOOTBALLMATCHES (MATCH_ID, NAME, "DATE", STADIUM)
+            VALUES (p_match_id, p_name, p_date, p_stadium);
+
+            COMMIT;
+            DBMS_OUTPUT.PUT_LINE('New football match created successfully.');
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Football match with ID ' || p_match_id || ' already exists.');
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK; 
+    END create_new_match;
+
+-------------------------create_new_ticket-----------------    
+    PROCEDURE create_new_ticket (
+        p_ticket_id           IN TICKETS.TICKET_ID%TYPE,
+        p_ticket_type         IN TICKETS.TICKET_TYPE%TYPE,
+        p_price               IN TICKETS.PRICE%TYPE,
+        p_number_tickets      IN TICKETS.NUMBER_TICKETS%TYPE
+    ) AS
+        v_existing_ticket     NUMBER;
+        v_existing_ticket_availability NUMBER;
+    BEGIN
+   
+        SELECT COUNT(*), MAX(AVAILIBILITYS)
+        INTO v_existing_ticket, v_existing_ticket_availability
+        FROM Tickets
+        WHERE TICKET_TYPE = p_ticket_type;
+
+        IF v_existing_ticket = 0 THEN
+           
+            INSERT INTO Tickets (TICKET_ID, TICKET_TYPE, PRICE, AVAILIBILITYS, NUMBER_TICKETS)
+            VALUES (p_ticket_id, p_ticket_type, p_price, 1, p_number_tickets);
+
+            COMMIT;
+            DBMS_OUTPUT.PUT_LINE('New ticket created successfully.');
+        ELSE
+           
+            IF v_existing_ticket_availability = 2 THEN
+               
+                INSERT INTO Tickets (TICKET_ID, TICKET_TYPE, PRICE, AVAILIBILITYS, NUMBER_TICKETS)
+                VALUES (p_ticket_id, p_ticket_type, p_price, 1, p_number_tickets);
+
+                COMMIT;
+                DBMS_OUTPUT.PUT_LINE('New ticket created successfully.');
+            ELSIF v_existing_ticket_availability = 1 THEN
+               
+                RAISE_APPLICATION_ERROR(-20001, 'Ticket type with availability = 1 already exists.');
+            END IF;
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK; 
+    END create_new_ticket;
+
+-----------------------purchase_ticket---------------------
+    PROCEDURE purchase_ticket (
+        p_customer_id   IN CUSTOMERS.id%TYPE,
+        p_match_id      IN FOOTBALLMATCHES.MATCH_ID%TYPE,
+        p_ticket_type   IN TICKETS.TICKET_TYPE%TYPE
+    ) AS
+        v_ticket_id         NUMBER;
+        v_availability_id   NUMBER;
+        v_customer_count    NUMBER;
+        v_number_tickets    NUMBER;
+        v_match_count       NUMBER;
+    BEGIN
+        
+        SELECT COUNT(*) INTO v_customer_count FROM Customers WHERE id = p_customer_id;
+
+        IF v_customer_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('Customer with ID ' || p_customer_id || ' does not exist.');
+            RETURN;
+        END IF;
+
+        SELECT COUNT(*) INTO v_match_count FROM FootballMatches WHERE MATCH_ID = p_match_id;
+
+        IF v_match_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('Match with ID ' || p_match_id || ' does not exist.');
+            RETURN;
+        END IF;
+
+        SELECT Tickets.TICKET_ID, Tickets.AVAILIBILITYS, Tickets.NUMBER_TICKETS
+        INTO v_ticket_id, v_availability_id, v_number_tickets
+        FROM Tickets
+        WHERE 
+             Tickets.ticket_type = p_ticket_type
+            AND Tickets.NUMBER_TICKETS > 0;
+
+        IF v_ticket_id IS NOT NULL THEN
+
+            UPDATE Tickets SET NUMBER_TICKETS = v_number_tickets - 1 WHERE ticket_id = v_ticket_id;
+
+            IF v_number_tickets = 1 THEN
+                UPDATE Tickets SET AVAILIBILITYS = 2 WHERE ticket_id = v_ticket_id;
+            END IF;
+
+            INSERT INTO FootballEventsSales (sale_id, customer_id, ticket_id, match_id, sale_date)
+            VALUES (FootballEventsSales_SEQ.nextval, p_customer_id, v_ticket_id, p_match_id, SYSDATE);
+
+            COMMIT; 
+            DBMS_OUTPUT.PUT_LINE('Ticket purchased successfully.');
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('No available tickets for the specified match and type.');
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK; 
+    END purchase_ticket;
+
+--------------------------change_ticket_price ---------------------    
+    FUNCTION change_ticket_price (
+       p_ticket_id     IN TICKETS.TICKET_ID%TYPE,
+       p_new_price     IN TICKETS.PRICE%TYPE
+    ) RETURN BOOLEAN AS
+        v_updated_rows NUMBER;
+    BEGIN
+       
+        UPDATE Tickets T
+        SET PRICE = p_new_price
+        WHERE T.TICKET_ID = p_ticket_id AND T.AVAILIBILITYS = 1;
+
+        v_updated_rows := SQL%ROWCOUNT;
+
+        IF v_updated_rows > 0 THEN
+            COMMIT; 
+            DBMS_OUTPUT.PUT_LINE('Ticket price updated successfully.');
+            RETURN TRUE;
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Ticket with ID ' || p_ticket_id || ' not found or not available.');
+            RETURN FALSE;
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK;
+            RETURN FALSE;
+    END change_ticket_price;
+
+-------------------------find_customer_tickets---------------------
+PROCEDURE find_customer_tickets (
+    p_customer_id   IN CUSTOMERS.ID%TYPE
+) AS
+    v_ticket_row FootballEventsSales%ROWTYPE;
+
+BEGIN
+   
+    FOR v_ticket_row IN (SELECT FootballEventsSales.*  
+                        FROM FootballEventsSales
+                        JOIN Tickets ON FootballEventsSales.ticket_id = Tickets.ticket_id
+                        WHERE FootballEventsSales.CUSTOMER_ID = p_customer_id) LOOP
+        DBMS_OUTPUT.PUT_LINE('Ticket ID: ' || v_ticket_row.ticket_id || ', Match ID: ' || v_ticket_row.match_id || ', Sale Date: ' || v_ticket_row.sale_date);
+    END LOOP;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+END find_customer_tickets;
+
+------------------------------------find_sales_by_period----------------------------
+ PROCEDURE find_sales_by_period (
+        p_start_date   IN DATE,
+        p_end_date     IN DATE
+    ) AS
+    BEGIN
+      
+        FOR sale_record IN (SELECT *
+                            FROM FootballEventsSales
+                            WHERE sale_date BETWEEN p_start_date AND p_end_date) LOOP
+            DBMS_OUTPUT.PUT_LINE('Sale ID: ' || sale_record.sale_id || ', Customer ID: ' || sale_record.customer_id || ', Match ID: ' || sale_record.match_id || ', Sale Date: ' || sale_record.sale_date);
+        END LOOP;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+    END find_sales_by_period;
+
+-------------------------find_matches_with_most_tickets_sold----------------------
+   PROCEDURE find_matches_with_most_tickets_sold AS
+        v_max_sold_tickets NUMBER;
+        v_match_id NUMBER;
+        v_match_name VARCHAR2(20);
+        v_sold_tickets NUMBER;
+    BEGIN
+       
+        SELECT MAX(sold_tickets)
+        INTO v_max_sold_tickets
+        FROM (
+            SELECT COUNT(fes.TICKET_ID) AS sold_tickets
+            FROM FOOTBALLMATCHES fm
+            JOIN FOOTBALLEVENTSSALES fes ON fm.MATCH_ID = fes.MATCH_ID
+            GROUP BY fm.MATCH_ID
+        );
+
+        FOR match_record IN (
+            SELECT
+                fm.MATCH_ID,
+                fm.NAME AS MATCH_NAME,
+                COUNT(fes.TICKET_ID) AS SOLD_TICKETS
+            FROM
+                FOOTBALLMATCHES fm
+            JOIN
+                FOOTBALLEVENTSSALES fes ON fm.MATCH_ID = fes.MATCH_ID
+            GROUP BY
+                fm.MATCH_ID, fm.NAME
+            HAVING
+                COUNT(fes.TICKET_ID) = v_max_sold_tickets
+        ) LOOP
+            v_match_id := match_record.MATCH_ID;
+            v_match_name := match_record.MATCH_NAME;
+            v_sold_tickets := match_record.SOLD_TICKETS;
+
+            DBMS_OUTPUT.PUT_LINE('Match ID: ' || v_match_id || ', Match Name: ' || v_match_name || ', Sold Tickets: ' || v_sold_tickets);
+        END LOOP;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+    END find_matches_with_most_tickets_sold;
+
+-----------------------------------find_customer_with_most_tickets----------------------------
+    PROCEDURE find_customer_with_most_tickets AS
+        v_max_tickets NUMBER;
+        v_customer_id NUMBER;
+        v_customer_name VARCHAR2(50);
+        v_tickets_count NUMBER;
+    BEGIN
+        
+        SELECT MAX(tickets_count)
+        INTO v_max_tickets
+        FROM (
+            SELECT COUNT(fes.TICKET_ID) AS tickets_count
+            FROM CUSTOMERS c
+            JOIN FOOTBALLEVENTSSALES fes ON c.ID = fes.CUSTOMER_ID
+            GROUP BY c.ID
+        );
+  
+        FOR customer_record IN (
+            SELECT
+                c.ID AS CUSTOMER_ID,
+                c.NAME AS CUSTOMER_NAME,
+                COUNT(fes.TICKET_ID) AS TICKETS_COUNT
+            FROM
+                CUSTOMERS c
+            JOIN
+                FOOTBALLEVENTSSALES fes ON c.ID = fes.CUSTOMER_ID
+            GROUP BY
+                c.ID, c.NAME
+            HAVING
+                COUNT(fes.TICKET_ID) = v_max_tickets
+        ) LOOP
+            v_customer_id := customer_record.CUSTOMER_ID;
+            v_customer_name := customer_record.CUSTOMER_NAME;
+            v_tickets_count := customer_record.TICKETS_COUNT;
+
+            DBMS_OUTPUT.PUT_LINE('Customer ID: ' || v_customer_id || ', Customer Name: ' || v_customer_name || ', Tickets Count: ' || v_tickets_count);
+        END LOOP;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+    END find_customer_with_most_tickets;
+
+--------------------------------transfer_ticket_owner---------------------------------------
+ PROCEDURE transfer_ticket_owner (
+        p_sale_id           IN FOOTBALLEVENTSSALES.SALE_ID%TYPE,
+        p_old_customer_id   IN CUSTOMERS.ID%TYPE,
+        p_new_customer_id   IN CUSTOMERS.ID%TYPE
+    ) AS
+        v_ticket_id          NUMBER;
+        v_old_owner_count    NUMBER;
+        v_new_owner_count    NUMBER;
+    BEGIN
+        
+        SELECT COUNT(*)
+        INTO v_old_owner_count
+        FROM FootballEventsSales
+        WHERE SALE_ID = p_sale_id AND CUSTOMER_ID = p_old_customer_id;
+
+        IF v_old_owner_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('The specified sale ID does not exist or does not belong to the old customer.');
+            RETURN;
+        END IF;
+ 
+        SELECT COUNT(*)
+        INTO v_new_owner_count
+        FROM Customers
+        WHERE ID = p_new_customer_id;
+
+        IF v_new_owner_count = 0 THEN
+            DBMS_OUTPUT.PUT_LINE('The new customer with ID ' || p_new_customer_id || ' does not exist.');
+            RETURN;
+        END IF;
+  
+        UPDATE FootballEventsSales
+        SET CUSTOMER_ID = p_new_customer_id
+        WHERE SALE_ID = p_sale_id;
+
+        COMMIT;
+        DBMS_OUTPUT.PUT_LINE('Ticket ownership transferred successfully.');
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK; 
+    END transfer_ticket_owner;
+
+END FootballEvents;
+/
+
