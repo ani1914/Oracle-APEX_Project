@@ -1,0 +1,94 @@
+ DECLARE
+    v_customer_id   customers.id%TYPE := 603; 
+    v_name          customers.name%TYPE := 'Marko Kirilov';
+    v_email         customers.email%TYPE := 'markov1218@hgmail.com';
+    v_phone         customers.phone%TYPE := '0888568898';
+BEGIN
+    FootballEvents.create_new_customer(v_customer_id, v_name, v_email, v_phone);
+END;
+/ 
+-------------------------------------------------------------------------------------------------------------------------
+ DECLARE
+    v_match_id     FOOTBALLMATCHES.MATCH_ID%TYPE := 603020; 
+    v_match_name   FOOTBALLMATCHES.NAME%TYPE := 'Pirin_VS-Beroe';
+    v_match_date   FOOTBALLMATCHES.DATE%TYPE := TO_DATE('2024-01-27', 'YYYY-MM-DD'); 
+    v_stadium      FOOTBALLMATCHES.STADIUM%TYPE := 'Blagoevgrad';
+BEGIN
+    FootballEvents.create_new_match(v_match_id, v_match_name, v_match_date, v_stadium);
+END;
+/
+---------------------------------------------------------------------------------------------------------------
+DECLARE
+    v_ticket_id           TICKETS.TICKET_ID%TYPE := 253623;
+    v_ticket_type         TICKETS.TICKET_TYPE%TYPE := 'Q';
+    v_price               TICKETS.PRICE%TYPE := 120.00;
+    v_number_tickets      TICKETS.NUMBER_TICKETS%TYPE := 2500;
+BEGIN
+    FootballEvents.create_new_ticket(v_ticket_id, v_ticket_type, v_price, v_number_tickets);
+END;
+/
+-----------------------------------------------------------------------------------------------------
+DECLARE
+    v_customer_id   customers.id%TYPE := 330;
+    v_match_id      footballmatches.match_id%TYPE := 103040;
+    v_ticket_type   tickets.ticket_type%TYPE := 'A';
+BEGIN
+    FootballEvents.purchase_ticket(v_customer_id, v_match_id, v_ticket_type);
+END;
+/
+---------------------------------------------------------------------------------
+DECLARE
+    v_ticket_id     TICKETS.TICKET_ID%TYPE := 202020;
+    v_new_price     TICKETS.PRICE%TYPE := 120.00;
+BEGIN
+    BEGIN
+        IF FootballEvents.change_ticket_price(v_ticket_id, v_new_price) THEN
+            DBMS_OUTPUT.PUT_LINE('Ticket price updated successfully.');
+            COMMIT;
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Ticket update failed.');
+            ROLLBACK;
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+            ROLLBACK;
+    END;
+END;
+/
+
+-----------------------------------------------------------------------
+DECLARE
+    v_customer_id NUMBER := 330; 
+BEGIN
+    FootballEvents.find_customer_tickets(v_customer_id);
+END;
+/
+----------------------------------------------------------------
+DECLARE
+    v_start_date DATE := TO_DATE('2024-01-01', 'YYYY-MM-DD');
+    v_end_date DATE := TO_DATE('2024-01-31', 'YYYY-MM-DD');
+BEGIN
+    FootballEvents.find_sales_by_period(v_start_date, v_end_date);
+END;
+/
+---------------------------------------------------------
+BEGIN
+    FootballEvents.find_matches_with_most_tickets_sold;
+END;
+/
+----------------------------------------------------
+BEGIN
+    FootballEvents.find_customer_with_most_tickets;
+END;
+/
+--------------------------------------------------
+DECLARE
+    v_sale_id           NUMBER := 64; 
+    v_old_customer_id   NUMBER := 330; 
+    v_new_customer_id   NUMBER := 564;
+BEGIN
+    FootballEvents.transfer_ticket_owner(v_sale_id, v_old_customer_id, v_new_customer_id);
+END;
+/
+
